@@ -26,9 +26,9 @@
 
   # tidy data
   boys <- boys7482 %>%
-    as_tibble() %>%
     select(age:hc) %>%
     mutate(bmi = wgt / (hgt/100)^2) %>%
+    as_tibble %>%
     drop_na
   boys
 
@@ -41,7 +41,7 @@
   # fit gamlss model for height
   # LMS method = family BCCG
   a1 <- gamlss(
-    height ~ pb(sqrt(age)),   # Mu
+    height ~ pb(sqrt(age)),    # Mu
     sigma.formula = ~ pb(age), # Sigma
     nu.formula = ~ pbz(age),   # Lambda (Nu)
     family=BCCG, data = boys)
@@ -64,14 +64,14 @@
   # reshape data from wide to long
   # put all four measurements in single column and copy age
   model_data <- boys %>%
-    pivot_longer(- age, names_to = "y", values_to = "measurement") %>%
+    pivot_longer(- age, names_to = "y", values_to = "value") %>%
     mutate(y = fct_inorder(y))
   boys
   model_data
 
   # use map for loops
 
-  # map(.x = list, .f = function)
+  # map(.x = list, .f = function, ...)
   # returns a list the same length as .x
   # each element of .x has .f applied to it
 
@@ -96,27 +96,30 @@
 
   # loop to extract centiles per model
   quiet <- quietly(predictAll)
+
   model_centiles <- map_dfr(.x = models, ~ { # models
-    LMS <- quiet(.x, age_grid)$result
+    LMS <- quiet(.x, age_grid)$result # obtain LMS values by age
+
     map_dfc(.x = as.list(prob), function(p) { # centiles
-      with(LMS, qBCCG(p, mu = mu, sigma = sigma, nu = nu))
+      with(LMS, qBCCG(p, mu = mu, sigma = sigma, nu = nu)) # convert probs to values
     }) %>%
-      bind_cols(age_grid) %>%
-      pivot_longer(-age, names_to = "centile", values_to = "measurement") %>%
+
+      bind_cols(age_grid) %>% # put values in one column
+      pivot_longer(-age, names_to = "centile", values_to = "value") %>%
       mutate(centile = fct_relabel(factor(centile), ~ names(prob)))
   }, .id = 'y') %>%
     mutate(y = fct_inorder(y))
   model_centiles
 
   # plot data and centiles - one layer at a time
-  (p <- ggplot(data = model_centiles, mapping = aes(age, measurement)))
+  (p <- ggplot(data = model_centiles, mapping = aes(age, value)))
   (p <- p + geom_point(data = model_data, colour = 'gray', size = 0.5))
   (p <- p + geom_path(mapping = aes(colour = centile)))
   (p <- p + facet_wrap(~ y, scales = 'free_y'))
   # (p <- p + theme_bw()) # bug
 
   # whole plot together
-  ggplot(mapping = aes(age, measurement)) +
+  ggplot(mapping = aes(age, value)) +
     geom_point(data = model_data, colour = 'gray', size = 0.5) +
     geom_path(data = model_centiles, mapping = aes(colour = centile)) +
     facet_wrap(~ y, scales = 'free_y') +
@@ -124,4 +127,5 @@
     NULL
 
   ggsave('coding club centiles.pdf', w=7, h=7)
+
   save(models, model_data, model_centiles, file = 'saved results')
